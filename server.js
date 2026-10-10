@@ -105,28 +105,6 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// API: 计算 Poseidon 哈希 (承诺 & 防双花)
-app.post('/api/calculate-hash', async (req, res) => {
-    try {
-        const { secret, nullifier } = req.body;
-        if (!secret || !nullifier) {
-            return res.status(400).json({ error: "Missing secret or nullifier" });
-        }
-
-        const F = poseidon.F;
-        const commitment = F.toString(poseidon([BigInt(secret), BigInt(nullifier)]));
-        const nullifierHash = F.toString(poseidon([BigInt(nullifier)]));
-
-        res.json({
-            success: true,
-            commitment,
-            nullifierHash
-        });
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
 // API: 执行链上存款 (模拟 Alice 存入 1 ETH)
 app.post('/api/deposit', async (req, res) => {
     try {
@@ -150,11 +128,13 @@ app.post('/api/deposit', async (req, res) => {
     }
 });
 
-// API: 执行链上提款 (带着前端生成的 ZK Proof 提款给 Bob)
+// API: 执行链上提款 (带着前端在浏览器生成的 ZK Proof 提款给用户指定的 recipient)
 app.post('/api/withdraw', async (req, res) => {
     try {
         const { a, b, c, nullifierHash, commitment, recipient } = req.body;
-        const targetRecipient = recipient || bobWallet.address;
+        if (!recipient) {
+            return res.status(400).json({ error: "Missing recipient address" });
+        }
 
         const vaultWithBob = vaultContract.connect(bobWallet);
         const tx = await vaultWithBob.withdraw(
@@ -163,7 +143,7 @@ app.post('/api/withdraw', async (req, res) => {
             c,
             BigInt(nullifierHash),
             BigInt(commitment),
-            targetRecipient
+            recipient
         );
         const receipt = await tx.wait();
 
@@ -172,7 +152,7 @@ app.post('/api/withdraw', async (req, res) => {
             txHash: receipt.hash,
             blockNumber: receipt.blockNumber,
             gasUsed: receipt.gasUsed.toString(),
-            recipient: targetRecipient
+            recipient: recipient
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });

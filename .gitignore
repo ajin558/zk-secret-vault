@@ -6,16 +6,20 @@ lib/forge-std/cache/
 out/
 cache/
 
-# Binary & Large ceremony files
+# Binary & Large ZK Artifacts
 bin/
 *.ptau
 *.wtns
+*.zkey
+*.r1cs
+*.wasm
+build/
+audit_demo/build/
+frontend/circuit/
 
-# OS / Editor
+# Environment & OS
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# Environment
 .env

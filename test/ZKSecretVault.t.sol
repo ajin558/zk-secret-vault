@@ -10,9 +10,10 @@ contract ZKSecretVaultTest is Test {
     ZKSecretVault public vault;
 
     address payable public alice = payable(address(0xA11CE));
-    address payable public bob = payable(address(0xB0B));
+    // Bob 地址必须与 pipeline 生成证明时绑定的 recipient 一致
+    address payable public bob = payable(0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC);
+    address payable public eve = payable(address(0xE0E)); // 恶意抢跑者
 
-    // 从 build/solidity_calldata.json 加载的参数
     uint[2] a;
     uint[2][2] b;
     uint[2] c;
@@ -23,16 +24,15 @@ contract ZKSecretVaultTest is Test {
         verifier = new Groth16Verifier();
         vault = new ZKSecretVault(address(verifier));
 
-        // 给测试账户注资虚拟测试币 (0成本，本地模拟)
         vm.deal(alice, 10 ether);
         vm.deal(bob, 0 ether);
+        vm.deal(eve, 0 ether);
 
         // 读取由流水线生成的真实 ZK 证明数据
         string memory root = vm.projectRoot();
         string memory path = string.concat(root, "/build/solidity_calldata.json");
         string memory json = vm.readFile(path);
 
-        // 解析参数
         a[0] = vm.parseJsonUint(json, ".a[0]");
         a[1] = vm.parseJsonUint(json, ".a[1]");
 
@@ -49,37 +49,50 @@ contract ZKSecretVaultTest is Test {
     }
 
     /**
-     * @notice 核心正向测试：合法的零知识证明成功提款
-     * 证明者完全不需要向合约透露任何 secret 明文！
+     * @notice 正向测试：合法零知识证明 + 正确绑定收款人成功提款
      */
     function test_ValidZKProof_WithdrawSuccess() public {
-        // 1. Alice 存款 1 ETH 并登记承诺
         vm.prank(alice);
         vault.deposit{value: 1 ether}(commitment);
         assertEq(address(vault).balance, 1 ether);
 
-        // 2. Bob 持有合法 Proof 提款到自己的地址
-        vm.prank(bob);
+        // 提款给证明所绑定的合法接收人 Bob
         vault.withdraw(a, b, c, nullifierHash, commitment, bob);
 
-        // 3. 断言资金划转与状态变更
         assertEq(address(vault).balance, 0, "vault balance should be 0");
         assertEq(bob.balance, 1 ether, "bob balance should be 1 ether");
         assertTrue(vault.nullifierSpent(nullifierHash), "nullifier should be marked as spent");
     }
 
     /**
-     * @notice 防双花攻击测试：同一证明无法二次提取
+     * @notice 安全测试：Mempool 抢跑拦截测试 (P0 核心修复验证)
+     * 证明：攻击者 Eve 即使完全截获了 Bob 的合法证明，尝试提款给自己也必被合约拒绝！
      */
-    function test_RevertWhen_DoubleSpend() public {
-        // 1. 存入 2 个承诺 (假设金库里有 2 ETH)
+    function test_RevertWhen_FrontRunDifferentRecipient() public {
         vm.prank(alice);
         vault.deposit{value: 1 ether}(commitment);
 
-        // 2. 第一次提款成功
+        // Eve 截获 a, b, c, nullifierHash, commitment，企图将收款人改为 Eve
+        vm.prank(eve);
+        vm.expectRevert(ZKSecretVault.InvalidProof.selector);
+        vault.withdraw(a, b, c, nullifierHash, commitment, eve);
+
+        // 确认资金依然安全停留在金库
+        assertEq(address(vault).balance, 1 ether);
+        assertEq(eve.balance, 0);
+    }
+
+    /**
+     * @notice 防双花攻击测试：同一证明无法二次提取
+     */
+    function test_RevertWhen_DoubleSpend() public {
+        vm.prank(alice);
+        vault.deposit{value: 1 ether}(commitment);
+
+        // 第一次合法提款
         vault.withdraw(a, b, c, nullifierHash, commitment, bob);
 
-        // 3. 攻击者尝试用同样的证明二次提款 -> 必须 Revert
+        // 攻击者尝试用同样的证明二次提款 -> 必须 Revert
         vm.expectRevert(ZKSecretVault.NullifierAlreadySpent.selector);
         vault.withdraw(a, b, c, nullifierHash, commitment, bob);
     }
@@ -91,7 +104,6 @@ contract ZKSecretVaultTest is Test {
         vm.prank(alice);
         vault.deposit{value: 1 ether}(commitment);
 
-        // 篡改证明的 a[0] 点坐标
         uint[2] memory fakeA = a;
         fakeA[0] = fakeA[0] + 1;
 

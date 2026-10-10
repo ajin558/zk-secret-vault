@@ -3,14 +3,15 @@ pragma circom 2.1.6;
 include "../node_modules/circomlib/circuits/poseidon.circom";
 
 /**
- * @title VulnerableVaultWithdrawal (经典“漏约束”致命漏洞电路)
- * @notice 这是一个在真实 Web3 审计中价值几十万美元的真实漏洞模型：
- * 开发者在写电路时，误将约束符号 === 漏写，或者把信号仅做了赋值。
+ * @title VulnerableVaultWithdrawal (经典“漏约束”致命漏洞教学电路)
+ * @notice 这是一个在真实 Web3 审计中价值极高的漏洞模型：
+ * 开发者在写电路时，误将关键约束漏写，导致信号未被数学方程约束 (Under-constrained)。
  */
 template VulnerableVaultWithdrawal() {
     signal input secret;
     signal input nullifier;
     signal input commitment;
+    signal input recipient;
     signal output nullifierHash;
 
     component commitmentHasher = Poseidon(2);
@@ -29,8 +30,10 @@ template VulnerableVaultWithdrawal() {
 
     component nullifierHasher = Poseidon(1);
     nullifierHasher.inputs[0] <== nullifier;
-
     nullifierHash <== nullifierHasher.out;
+
+    signal recipientSquare;
+    recipientSquare <== recipient * recipient;
 }
 
-component main {public [commitment]} = VulnerableVaultWithdrawal();
+component main {public [commitment, recipient]} = VulnerableVaultWithdrawal();

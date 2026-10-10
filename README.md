@@ -1,21 +1,26 @@
-# ZK-SecretVault: Trustless On-Chain Privacy Vault with Groth16 & WebAssembly
+# ZK-SecretVault: Educational Zero-Knowledge Secret Vault Prototype
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+> [!WARNING]
+> **EDUCATIONAL & EXPERIMENTAL PROTOTYPE ONLY**
+> This repository is a pedagogical reference demonstrating the mechanics of Zero-Knowledge circuits (Groth16), smart contract verifiers, and client-side WebAssembly proving.
+> - **Trusted Setup Disclaimer**: The Groth16 parameters in this repository were generated using local deterministic entropy. It provides **NO cryptographic security guarantees** against parties who can reconstruct the toxic waste. **NEVER deploy this codebase on mainnet with real user funds.**
+> - **Anonymity Model**: Current implementation operates as a 1-to-1 zero-knowledge secret voucher (pairwise commitment). True multi-party anonymity pooling requires an incremental Merkle Tree accumulator (planned for Phase 2).
+
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Foundry](https://img.shields.io/badge/Foundry-Passing-brightgreen)](https://getfoundry.sh/)
-[![Circom](https://img.shields.io/badge/Circom-2.2.3-orange)](https://github.com/iden3/circom)
+[![Circom](https://img.shields.io/badge/Circom-2.1.6+-orange)](https://github.com/iden3/circom)
 [![SnarkJS](https://img.shields.io/badge/SnarkJS-Groth16-purple)](https://github.com/iden3/snarkjs)
-
-**ZK-SecretVault** is a privacy-preserving decentralized custody and anonymous redemption protocol. It enables depositors to register cryptographic commitments on-chain and redeem funds anonymously using client-side Zero-Knowledge Proofs (ZKPs) without exposing preimages, plaintexts, or private keys to the mempool or miners.
 
 ---
 
-## 🚀 Key Features
+## 📖 Overview
 
-- **100% Client-Side Privacy Proof**: Proofs are synthesized in the browser in **< 150ms** via WebAssembly (WASM). No trusted relayer or centralized backend needed.
-- **Poseidon Hash Arithmetization**: Leverages the SNARK-friendly Poseidon sponge construction over the BN254 scalar field ($GF(p)$), minimizing R1CS gate count.
-- **Anti-Double-Spend Nullifier Mechanism**: Enforces cryptographic one-time redemption using nullifier commitments (`nullifierHash = Poseidon(nullifier)`).
-- **EIP-197 Gas Optimization**: Uses Ethereum precompiled contract `0x08` (`ecpairing`) for on-chain proof verification (~195k gas).
-- **Audited Vulnerability PoC Suite**: Includes automated Foundry PoCs demonstrating protections against common ZK pitfalls (e.g., **Under-constrained circuits**).
+**ZK-SecretVault** demonstrates how to build a trustless on-chain deposit and redemption flow where:
+1. Depositors register a cryptographic commitment on-chain: $\text{commitment} = \text{Poseidon}(\text{secret}, \text{nullifier})$.
+2. The user generates a Groth16 zero-knowledge proof in the browser locally using WebAssembly.
+3. The smart contract validates the proof via Ethereum precompile `0x08` (`ecpairing`) and releases funds.
+4. **Anti-Frontrunning Protection**: The recipient address is cryptographically bound into the circuit constraints, preventing miners or MEV bots from stealing funds in the mempool.
+5. **Anti-Double-Spend**: A public nullifier hash is tracked on-chain to prevent replay attacks.
 
 ---
 
@@ -25,22 +30,22 @@
 sequenceDiagram
     autonumber
     actor Alice as Alice (Depositor)
-    actor Bob as Bob (Anonymous Recipient)
+    actor Bob as Bob (Recipient)
     participant Browser as Client Browser (WASM)
     participant Contract as ZKSecretVault.sol
     participant Verifier as Groth16Verifier.sol (Precompile 0x08)
 
-    Alice->>Browser: Enter Secret + Nullifier
-    Browser->>Browser: Compute commitment = Poseidon(secret, nullifier)
+    Alice->>Browser: Generate CSPRNG Secret + Nullifier
+    Browser->>Browser: Compute commitment = Poseidon(secret, nullifier) locally
     Alice->>Contract: deposit(commitment) with 1 ETH
     Note over Contract: Stores commitment on-chain
 
-    Bob->>Browser: Input secret + nullifier
-    Browser->>Browser: snarkjs.groth16.fullProve() in WASM (~120ms)
-    Note over Browser: Synthesizes π_a, π_b, π_c & nullifierHash
+    Bob->>Browser: Input secret, nullifier, and Bob's recipient address
+    Browser->>Browser: snarkjs.groth16.fullProve() in browser WASM
+    Note over Browser: Computes π_a, π_b, π_c binding Bob's address
     Bob->>Contract: withdraw(π, nullifierHash, commitment, Bob)
-    Contract->>Contract: Check nullifierSpent[nullifierHash] == false
-    Contract->>Verifier: verifyProof(π, [nullifierHash, commitment])
+    Contract->>Contract: Verify nullifierSpent[nullifierHash] == false
+    Contract->>Verifier: verifyProof(π, [nullifierHash, commitment, Bob])
     Verifier-->>Contract: Pairing Valid (true)
     Contract->>Contract: Mark nullifierSpent = true
     Contract->>Bob: Transfer 1 ETH
@@ -48,49 +53,41 @@ sequenceDiagram
 
 ---
 
-## 📊 Circuit & Gas Benchmark
+## 🛡️ Security Features & Audit Demonstrations
 
-### Circom Circuit Metrics (`VaultWithdrawal`)
-| Metric | Value |
-| :--- | :--- |
-| **Compiler** | Circom 2.2.3 |
-| **Proving System** | Groth16 (BN254 curve) |
-| **Non-Linear Constraints** | 459 |
-| **Linear Constraints** | 473 |
-| **Wires** | 935 |
-| **Public Inputs / Outputs** | 1 Input (`commitment`), 1 Output (`nullifierHash`) |
-| **Browser Proving Time** | ~110 ms (Intel/Apple Silicon) |
+### 1. Mempool Front-Running Prevention (P0 Fixed)
+In naive ZK implementations, the recipient address is merely passed to the smart contract without being enforced inside the zero-knowledge proof. A malicious observer in the public mempool can copy the valid proof parameters and replace `recipient` with their own address to steal funds.
 
-### Smart Contract Execution Benchmarks (Foundry Local EVM)
-| Function | Gas Used | Description |
-| :--- | :--- | :--- |
-| `deposit()` | **46,079** | Registers commitment & stores funds |
-| `withdraw()` | **261,703** | Full verification + anti-double-spend + 1 ETH payout |
-| `ecpairing` verification | **195,775** | Underlying precompile `0x08` check |
+In ZK-SecretVault, `recipient` is a public input to `VaultWithdrawal()` and enforced via an R1CS constraint:
+```circom
+signal recipientSquare;
+recipientSquare <== recipient * recipient;
+```
+If an attacker attempts to substitute the recipient address, the pairing equation check fails immediately on-chain. Verified in `test_RevertWhen_FrontRunDifferentRecipient()`.
+
+### 2. Under-Constrained Circuit Vulnerability PoC
+This repository includes a dedicated security audit demonstration in [`audit_demo/`](audit_demo/):
+- [`audit_demo/vulnerable_vault.circom`](audit_demo/vulnerable_vault.circom): Replicates a real-world bug where `commitment === commitmentHasher.out` is omitted.
+- [`test/UnderConstrainedExploit.t.sol`](test/UnderConstrainedExploit.t.sol): Proves that an attacker with `secret = 0` can forge proofs and drain victim deposits.
 
 ---
 
-## 🛡️ Built-in Security & Audit Test Suite
+## 📊 Benchmark & Gas Metrics
 
-In ZK circuits, **Under-constrained vulnerabilities** (missing constraints) represent over 70% of high-severity audit findings in Web3.
+### Circuit Metrics (`circuits/vault.circom`)
+- **Compiler**: Circom 2.2.3 (Circuit pragma `2.1.6+`)
+- **Proving System**: Groth16 over BN254 curve
+- **Non-Linear Constraints**: 460
+- **Linear Constraints**: 473
+- **Public Inputs / Outputs**: 1 Output (`nullifierHash`), 2 Inputs (`commitment`, `recipient`)
+- **Wires**: 937
 
-This repository includes a dedicated exploit test suite ([`test/UnderConstrainedExploit.t.sol`](test/UnderConstrainedExploit.t.sol)) that proves:
-1. Omitting `commitment === commitmentHasher.out` allows an attacker with `secret = 0` to forge valid proofs and drain funds.
-2. The production circuit strictly enforces all intermediate signals, ensuring strict computational determinism.
-
-Run all tests via Foundry:
-```bash
-forge test -vvv
-```
-
-Output:
-```text
-Ran 2 test suites in 8.55ms: 4 tests passed, 0 failed, 0 skipped
-[PASS] test_ValidZKProof_WithdrawSuccess() (gas: 359859)
-[PASS] test_RevertWhen_DoubleSpend() (gas: 421088)
-[PASS] test_RevertWhen_ProofTampered() (gas: 1024198919)
-[PASS] test_AuditPoC_UnderConstrainedDrainVault() (gas: 356057)
-```
+### Smart Contract Execution Benchmarks (Foundry 1.8.1)
+| Function | Gas Used (Median) | Description |
+| :--- | :--- | :--- |
+| `deposit()` | **46,079** | Stores commitment and accepts 1 ETH |
+| `withdraw()` | **284,820** | Reentrancy check + verification + nullifier marking + transfer |
+| `verifyProof()` | **202,422** | Precompile `0x08` (`ecpairing`) check |
 
 ---
 
@@ -99,32 +96,32 @@ Ran 2 test suites in 8.55ms: 4 tests passed, 0 failed, 0 skipped
 ### Prerequisites
 - Node.js >= 18
 - Foundry (`forge` and `anvil`)
-- Circom 2.2+ (executable included in `bin/`)
+- Circom compiler (download official binary or install globally)
 
-### 1. Installation
+### 1. Clone & Install
 ```bash
 git clone https://github.com/ajin558/zk-secret-vault.git
 cd zk-secret-vault
 npm install
 ```
 
-### 2. Compile Circuit & Generate Verifier
-```bash
-node scripts/run_pipeline.js
-```
-
-### 3. Run Foundry Test Suite
+### 2. Run Foundry Tests
 ```bash
 forge test -vvv
 ```
 
-### 4. Launch Local Interactive DApp
+### 3. Run Pipeline (Build & Setup)
 ```bash
-node server.js
+npm run build:circuit
 ```
-Open **`http://localhost:3000`** in your browser to experience client-side proving and trustless withdrawals.
+
+### 4. Run Interactive Local DApp
+```bash
+npm start
+```
+Open **`http://localhost:3000`** to interact with the local WebAssembly proving interface.
 
 ---
 
 ## 📄 License
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU General Public License v3.0](LICENSE) (aligned with dependencies including SnarkJS verifiers and circomlibjs).
