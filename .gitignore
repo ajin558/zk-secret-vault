@@ -12,7 +12,8 @@ bin/
 *.wtns
 build/*.ptau
 build/*.wtns
-audit_demo/build/
+audit_demo/build/*.wtns
+audit_demo/build/*.ptau
 
 # Environment & OS
 .DS_Store
