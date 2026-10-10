@@ -5,7 +5,7 @@
 - **Project Name**: ZK-SecretVault
 - **Category**: Cryptography, Privacy & Public Goods Infrastructure
 - **Track**: Zero-Knowledge Tooling & Application Layer Privacy
-- **Open-Source Repository**: `https://github.com/<your-github-username>/zk-secret-vault`
+- **Open-Source Repository**: `https://github.com/ajin558/zk-secret-vault`
 - **Applicant / Core Contributor**: Independent ZK & Smart Contract Engineer
 - **Legal EVM Payout Address**: `0x3dB8636F9C32DeF9D96079A9eCF272E174093A11`
 - **Requested Funding**: $10,000 USD (payable in USDC / ETH)

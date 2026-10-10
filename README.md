@@ -103,7 +103,7 @@ Ran 2 test suites in 8.55ms: 4 tests passed, 0 failed, 0 skipped
 
 ### 1. Installation
 ```bash
-git clone https://github.com/your-username/zk-secret-vault.git
+git clone https://github.com/ajin558/zk-secret-vault.git
 cd zk-secret-vault
 npm install
 ```
