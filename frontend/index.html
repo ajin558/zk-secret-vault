@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZK-Vault | 零知识暗号金库实验室</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="snarkjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'Fira Code', monospace; }
+        .glow-cyan { box-shadow: 0 0 25px rgba(6, 182, 212, 0.15); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+    <!-- 顶部状态栏 -->
+    <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-3 h-3 bg-cyan-400 rounded-full animate-pulse"></div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    ZK-Secret Vault <span class="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800/60">Groth16 v2.2</span>
+                </h1>
+            </div>
+            <div class="flex items-center space-x-4 text-xs font-mono">
+                <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+                    <span class="text-slate-400">金库余额:</span> 
+                    <span id="vaultBalance" class="text-emerald-400 font-bold ml-1">0.0 ETH</span>
+                </div>
+                <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 hidden sm:block">
+                    <span class="text-slate-400">提款人 (Bob):</span> 
+                    <span id="bobBalance" class="text-cyan-400 font-bold ml-1">0.0 ETH</span>
+                </div>
+                <button onclick="refreshStatus()" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition">
+                    🔄 刷新
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主体区域 -->
+    <main class="max-w-6xl mx-auto px-4 py-8">
+        <!-- 核心步骤导航 -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- 左侧：交互操作面板 -->
+            <div class="lg:col-span-7 space-y-6">
+                <!-- 卡片 1：存入金库 (Deposit) -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 glow-cyan">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center space-x-2">
+                            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-bold font-mono">1</span>
+                            <h2 class="text-base font-semibold text-white">存入资金与生成承诺 (Deposit)</h2>
+                        </div>
+                        <button onclick="generateRandomSecret()" class="text-xs text-cyan-400 hover:text-cyan-300 transition flex items-center gap-1 font-mono">
+                            🎲 随机生成暗号
+                        </button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">私有暗号 (Secret) <span class="text-slate-500">- 仅留在你的浏览器本地</span></label>
+                            <input id="inputSecret" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-500" placeholder="例如: 1234567890987654321">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">单次随机数 (Nullifier) <span class="text-slate-500">- 用于防双花</span></label>
+                            <input id="inputNullifier" type="text" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-cyan-300 focus:outline-none focus:border-cyan-500" placeholder="例如: 9876543210123456789">
+                        </div>
+
+                        <!-- 承诺哈希预览 -->
+                        <div class="bg-slate-950/60 p-3 rounded-lg border border-slate-800/80 text-xs font-mono space-y-1">
+                            <div class="text-slate-400">公开承诺 (Commitment = Poseidon(secret, nullifier)):</div>
+                            <div id="displayCommitment" class="text-slate-500 break-all select-all font-bold">请点击下方计算承诺...</div>
+                        </div>
+
+                        <div class="flex gap-3 pt-2">
+                            <button onclick="calculateCommitment()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 py-2.5 rounded-lg text-sm font-semibold transition">
+                                🧮 1. 计算公开承诺
+                            </button>
+                            <button id="btnDeposit" onclick="submitDeposit()" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white py-2.5 rounded-lg text-sm font-semibold transition shadow-lg shadow-cyan-950 disabled:opacity-50">
+                                💰 2. 存入 1 ETH 并登记
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 卡片 2：零知识证明与匿名提款 (Prove & Withdraw) -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-6">
+                    <div class="flex items-center space-x-2 mb-4">
+                        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold font-mono">2</span>
+                        <h2 class="text-base font-semibold text-white">零知识证明与匿名提款 (Prove & Withdraw)</h2>
+                    </div>
+
+                    <p class="text-xs text-slate-400 mb-4 leading-relaxed">
+                        提款时，系统将在当前浏览器内使用 <span class="text-emerald-400 font-mono">WASM 引擎</span> 本地计算 Groth16 数学证明，<strong class="text-slate-200">完全不在链上暴露密码明文</strong>！
+                    </p>
+
+                    <div class="space-y-4">
+                        <div class="flex gap-3">
+                            <button id="btnProve" onclick="generateProofInBrowser()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-lg text-sm font-semibold transition shadow-lg shadow-emerald-950 flex items-center justify-center gap-2">
+                                <span>⚡ 浏览器内生成零知识证明 (WASM)</span>
+                            </button>
+                        </div>
+
+                        <!-- 证明状态框 -->
+                        <div id="proofResultBox" class="hidden bg-slate-950 p-4 rounded-xl border border-emerald-900/40 text-xs font-mono space-y-2">
+                            <div class="flex items-center justify-between text-emerald-400 font-bold">
+                                <span>✓ 证明生成完毕 (Groth16)</span>
+                                <span id="proofTimeBadge" class="text-slate-400 font-normal">耗时: 120ms</span>
+                            </div>
+                            <div class="text-slate-400">公开 NullifierHash (防双花凭证):</div>
+                            <div id="displayNullifierHash" class="text-slate-300 break-all"></div>
+                            
+                            <div class="pt-2">
+                                <button id="btnWithdraw" onclick="submitWithdraw()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 py-2.5 rounded-lg text-sm font-bold transition shadow-lg shadow-emerald-950">
+                                    🚀 提交链上合约提款 (到 Bob 钱包)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：实时日志与原理解析 -->
+            <div class="lg:col-span-5 space-y-6">
+                <!-- 实时终端日志 -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col h-[520px]">
+                    <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                        <span class="text-xs font-mono font-bold text-slate-300 flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400"></span> 系统控制台日志 (Console)
+                        </span>
+                        <button onclick="clearLogs()" class="text-xs text-slate-500 hover:text-slate-400">清空</button>
+                    </div>
+                    <div id="consoleLog" class="flex-1 overflow-y-auto space-y-1.5 font-mono text-xs text-slate-400 pr-1">
+                        <div class="text-slate-500">[System] 零知识实验环境初始化完成...</div>
+                        <div class="text-slate-500">[Network] 节点: Anvil Local EVM (ChainID: 31337)</div>
+                    </div>
+                </div>
+
+                <!-- 密码学速查卡 -->
+                <div class="bg-slate-900/50 border border-slate-800/80 rounded-2xl p-5 text-xs text-slate-400 space-y-2">
+                    <h3 class="font-bold text-slate-300 text-sm">💡 为什么这个设计无法被破解？</h3>
+                    <p>1. <strong>哈希单向性</strong>：链上只有 <code class="text-cyan-400">Poseidon(secret, nullifier)</code>，由于散列函数单向性，无法反推明文。</p>
+                    <p>2. <strong>防双花机制</strong>：合约记录 <code class="text-emerald-400">nullifierHash</code>。即使换个接收地址，同一密码产生的 nullifierHash 始终相同，二次提交会被智能合约强行拦截。</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentCommitment = null;
+        let currentNullifierHash = null;
+        let currentProof = null;
+        let currentPublicSignals = null;
+
+        function log(msg, type = 'info') {
+            const consoleBox = document.getElementById('consoleLog');
+            const time = new Date().toTimeString().split(' ')[0];
+            const div = document.createElement('div');
+            if (type === 'success') div.className = 'text-emerald-400';
+            else if (type === 'error') div.className = 'text-rose-400';
+            else if (type === 'warn') div.className = 'text-amber-400';
+            else div.className = 'text-slate-300';
+            div.innerHTML = `<span class="text-slate-600">[${time}]</span> ${msg}`;
+            consoleBox.appendChild(div);
+            consoleBox.scrollTop = consoleBox.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('consoleLog').innerHTML = '';
+        }
+
+        async function refreshStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('vaultBalance').innerText = `${data.vaultBalance} ETH`;
+                    document.getElementById('bobBalance').innerText = `${data.bobBalance} ETH`;
+                    log(`状态刷新: 金库余额 ${data.vaultBalance} ETH, Bob 余额 ${data.bobBalance} ETH`);
+                }
+            } catch (e) {
+                log(`无法连接本地节点服务: ${e.message}`, 'error');
+            }
+        }
+
+        function generateRandomSecret() {
+            const randSecret = (BigInt(Math.floor(Math.random() * 1e9)) * 1000000000n + BigInt(Math.floor(Math.random() * 1e9))).toString();
+            const randNullifier = (BigInt(Math.floor(Math.random() * 1e9)) * 1000000000n + BigInt(Math.floor(Math.random() * 1e9))).toString();
+            document.getElementById('inputSecret').value = randSecret;
+            document.getElementById('inputNullifier').value = randNullifier;
+            log(`已随机生成暗号 Secret 与 Nullifier`);
+            calculateCommitment();
+        }
+
+        async function calculateCommitment() {
+            const secret = document.getElementById('inputSecret').value.trim();
+            const nullifier = document.getElementById('inputNullifier').value.trim();
+            if (!secret || !nullifier) {
+                alert("请输入或随机生成 Secret 和 Nullifier");
+                return;
+            }
+
+            try {
+                log("正在调用 Poseidon 哈希计算链上承诺...");
+                const res = await fetch('/api/calculate-hash', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ secret, nullifier })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentCommitment = data.commitment;
+                    currentNullifierHash = data.nullifierHash;
+                    document.getElementById('displayCommitment').innerText = currentCommitment;
+                    log(`承诺计算完成: ${currentCommitment.slice(0, 16)}...`, 'success');
+                }
+            } catch (e) {
+                log(`计算出错: ${e.message}`, 'error');
+            }
+        }
+
+        async function submitDeposit() {
+            if (!currentCommitment) {
+                alert("请先计算公开承诺！");
+                return;
+            }
+
+            try {
+                const btn = document.getElementById('btnDeposit');
+                btn.disabled = true;
+                btn.innerText = "⏳ 存款交易打包中...";
+                log("正在通过 Alice 账户向合约存入 1 ETH 并登记承诺...");
+
+                const res = await fetch('/api/deposit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ commitment: currentCommitment })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    log(`🎉 存款成功！交易哈希: ${data.txHash} (区块: ${data.blockNumber}, 消耗 Gas: ${data.gasUsed})`, 'success');
+                    await refreshStatus();
+                } else {
+                    log(`存款失败: ${data.error}`, 'error');
+                }
+            } catch (e) {
+                log(`存款异常: ${e.message}`, 'error');
+            } finally {
+                const btn = document.getElementById('btnDeposit');
+                btn.disabled = false;
+                btn.innerText = "💰 2. 存入 1 ETH 并登记";
+            }
+        }
+
+        async function generateProofInBrowser() {
+            const secret = document.getElementById('inputSecret').value.trim();
+            const nullifier = document.getElementById('inputNullifier').value.trim();
+            if (!secret || !nullifier || !currentCommitment) {
+                alert("缺少 Secret, Nullifier 或 Commitment，请先完成第一步");
+                return;
+            }
+
+            const btn = document.getElementById('btnProve');
+            btn.disabled = true;
+            btn.innerText = "⏳ WASM 算力生成证明中...";
+            log("🚀 启动浏览器本地 snarkjs (Groth16 WASM) 运算...");
+
+            const startTime = performance.now();
+
+            try {
+                const circuitInput = {
+                    secret: secret,
+                    nullifier: nullifier,
+                    commitment: currentCommitment
+                };
+
+                // 在浏览器纯本地执行 Groth16 零知识证明
+                const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+                    circuitInput,
+                    "circuit/vault.wasm",
+                    "circuit/vault_final.zkey"
+                );
+
+                const duration = Math.round(performance.now() - startTime);
+                log(`✓ 零知识证明生成成功！浏览器内仅耗时: ${duration} ms`, 'success');
+                log(`公开信号: [NullifierHash: ${publicSignals[0].slice(0, 12)}..., Commitment: ${publicSignals[1].slice(0, 12)}...]`);
+
+                currentProof = proof;
+                currentPublicSignals = publicSignals;
+
+                document.getElementById('proofResultBox').classList.remove('hidden');
+                document.getElementById('proofTimeBadge').innerText = `耗时: ${duration} ms`;
+                document.getElementById('displayNullifierHash').innerText = publicSignals[0];
+            } catch (e) {
+                log(`证明生成失败: ${e.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "⚡ 浏览器内生成零知识证明 (WASM)";
+            }
+        }
+
+        async function submitWithdraw() {
+            if (!currentProof || !currentPublicSignals) {
+                alert("请先生成零知识证明！");
+                return;
+            }
+
+            try {
+                const btn = document.getElementById('btnWithdraw');
+                btn.disabled = true;
+                btn.innerText = "⏳ 链上配对校验中...";
+                log("正在将证明参数提交给智能合约 (调用 verifyProof & 放款)...");
+
+                // 将 snarkjs 格式 Proof 转换为 Solidity 需要的 a, b, c 格式
+                const a = [currentProof.pi_a[0], currentProof.pi_a[1]];
+                const b = [
+                    [currentProof.pi_b[0][1], currentProof.pi_b[0][0]],
+                    [currentProof.pi_b[1][1], currentProof.pi_b[1][0]]
+                ];
+                const c = [currentProof.pi_c[0], currentProof.pi_c[1]];
+
+                const res = await fetch('/api/withdraw', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        a,
+                        b,
+                        c,
+                        nullifierHash: currentPublicSignals[0],
+                        commitment: currentPublicSignals[1]
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    log(`🎉 匿名提款成功！1 ETH 已安全打入 Bob 钱包！`, 'success');
+                    log(`交易哈希: ${data.txHash} (区块: ${data.blockNumber}, 消耗 Gas: ${data.gasUsed})`);
+                    await refreshStatus();
+                } else {
+                    log(`提款失败 (可能已被消费或证明无效): ${data.error}`, 'error');
+                }
+            } catch (e) {
+                log(`提款调用异常: ${e.message}`, 'error');
+            } finally {
+                const btn = document.getElementById('btnWithdraw');
+                btn.disabled = false;
+                btn.innerText = "🚀 提交链上合约提款 (到 Bob 钱包)";
+            }
+        }
+
+        // 页面初始化
+        window.addEventListener('load', () => {
+            refreshStatus();
+            generateRandomSecret();
+        });
+    </script>
+</body>
+</html>

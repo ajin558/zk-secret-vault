@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+lib/forge-std/cache/
+
+# Foundry / Solidity
+out/
+cache/
+
+# Binary & Large ceremony files
+bin/
+*.ptau
+*.wtns
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment
+.env
