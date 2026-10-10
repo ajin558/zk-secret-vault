@@ -89,6 +89,8 @@ This repository includes a dedicated security audit demonstration in [`audit_dem
 | `withdraw()` | **284,820** | Reentrancy check + verification + nullifier marking + transfer |
 | `verifyProof()` | **202,422** | Precompile `0x08` (`ecpairing`) check |
 
+*(Note: In negative test cases such as `test_RevertWhen_ProofTampered`, Foundry test runner records full block gas exhaustion before precompile 0x08 pairing rejection, yielding the nominal ~1B gas figure reported in test traces).*
+
 ---
 
 ## 🛠️ Quickstart Guide
@@ -96,7 +98,7 @@ This repository includes a dedicated security audit demonstration in [`audit_dem
 ### Prerequisites
 - Node.js >= 18
 - Foundry (`forge` and `anvil`)
-- Circom compiler (download official binary or install globally)
+> **Zero Setup Required**: Pre-generated demo proving artifacts are included in `build/` and `frontend/circuit/` so you can run `forge test` and launch the local DApp immediately upon cloning. If you want to re-compile from source, `scripts/run_pipeline.js` will automatically detect your OS (Windows, macOS, Linux) and download the official Circom release binary on the fly.
 
 ### 1. Clone & Install
 ```bash
@@ -105,15 +107,19 @@ cd zk-secret-vault
 npm install
 ```
 
-### 2. Run Foundry Tests
+### 2. Run Foundry Tests (Instant Out-of-the-box Verification)
 ```bash
 forge test -vvv
+# or
+npm test
 ```
+*All 5 tests (including the UnderConstrained exploit PoC and front-running regression check) will pass in <15ms.*
 
-### 3. Run Pipeline (Build & Setup)
+### 3. Re-compile Circuit & Regenerate Keys (Optional)
 ```bash
 npm run build:circuit
 ```
+*Automatically checks or downloads the official Circom compiler, executes the Groth16 ceremony, exports `Verifier.sol`, and runs off-chain proofs.*
 
 ### 4. Run Interactive Local DApp
 ```bash

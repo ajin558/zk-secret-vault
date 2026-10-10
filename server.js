@@ -49,10 +49,20 @@ async function ensureAnvilRunning() {
     }
 
     provider = new ethers.JsonRpcProvider(RPC_URL);
-    // Anvil 默认前三个测试私钥
-    deployerWallet = new ethers.Wallet("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", provider);
-    aliceWallet = new ethers.Wallet("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", provider);
-    bobWallet = new ethers.Wallet("0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a", provider);
+    // 优先读取环境变量私钥，本地测试网 (Anvil/Hardhat) 未配置时回退至官方标准公开测试私钥
+    const isLocalNode = RPC_URL.includes("127.0.0.1") || RPC_URL.includes("localhost");
+    const deployerKey = process.env.DEPLOYER_PRIVATE_KEY || (isLocalNode ? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" : null);
+    const aliceKey = process.env.ALICE_PRIVATE_KEY || (isLocalNode ? "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" : null);
+    const bobKey = process.env.BOB_PRIVATE_KEY || (isLocalNode ? "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a" : null);
+
+    if (!deployerKey) {
+        throw new Error("Missing DEPLOYER_PRIVATE_KEY environment variable for non-local network.");
+    }
+
+    deployerWallet = new ethers.Wallet(deployerKey, provider);
+    aliceWallet = aliceKey ? new ethers.Wallet(aliceKey, provider) : null;
+    bobWallet = bobKey ? new ethers.Wallet(bobKey, provider) : null;
+    console.log(`[Wallet] Deployer 钱包就绪: ${deployerWallet.address}`);
 }
 
 // 自动部署合约

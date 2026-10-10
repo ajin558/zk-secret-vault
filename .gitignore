@@ -6,16 +6,13 @@ lib/forge-std/cache/
 out/
 cache/
 
-# Binary & Large ZK Artifacts
+# Large Setup Ceremony Artifacts (On-demand generated)
 bin/
 *.ptau
 *.wtns
-*.zkey
-*.r1cs
-*.wasm
-build/
+build/*.ptau
+build/*.wtns
 audit_demo/build/
-frontend/circuit/
 
 # Environment & OS
 .DS_Store

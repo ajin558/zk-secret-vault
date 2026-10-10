@@ -36,7 +36,9 @@ template VaultWithdrawal() {
     nullifierHasher.inputs[0] <== nullifier;
     nullifierHash <== nullifierHasher.out;
 
-    // (c) 强制约束 recipient 参与多项式方程 (防抢跑 / 假造收款人)
+    // (c) 强制约束 recipient 参与多项式方程
+    // 参考经典 Tornado Cash 模式：使用乘方约束强制将 recipient 固化入 R1CS 约束系统，
+    // 防止 Circom 编译器优化剔除，并确保其在 Groth16 Verifier 中作为公共信号校验
     signal recipientSquare;
     recipientSquare <== recipient * recipient;
 }
